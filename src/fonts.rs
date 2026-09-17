@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use mtk::{ui::View, windowing::Window};
 
 pub const IOSEVKA_REGULAR_BYTES: &[u8] = include_bytes!("./assets/fonts/Iosevka-Regular.ttf");
@@ -21,11 +23,11 @@ pub enum Font {
 }
 
 impl Font {
-    pub fn name(&self) -> String {
+    pub fn name(&self) -> Cow<'_, str> {
         match self {
-            Font::Iosevka => "Iosevka".to_string(),
-            Font::InterVariable => format!("Inter Variable, {}", Font::NotoSansCJK.name()),
-            Font::NotoSansCJK => "Noto Sans JP, Noto Sans SC, Noto Sans KR".to_string(),
+            Font::Iosevka => "Iosevka".into(),
+            Font::InterVariable => format!("Inter Variable, {}", Font::NotoSansCJK.name()).into(),
+            Font::NotoSansCJK => "Noto Sans JP, Noto Sans SC, Noto Sans KR".into(),
         }
     }
 }

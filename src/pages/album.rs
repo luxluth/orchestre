@@ -85,7 +85,7 @@ pub fn render(
                 Style::new()
                     .opacity(0.7)
                     .on_hover(|s| s.opacity(1.))
-                    .on_active(|s| s.scale(0.98))
+                    .on_active(|s| s.scale(0.9))
                     .transition(TransitionProperty::Opacity, 150., Curve::ease_in_out()),
             )
             .on_event(EventKind::Click, |_| Some(AlbumMsg::GotoLibrary)),

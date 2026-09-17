@@ -54,7 +54,7 @@ impl Theme {
             s.update_text_style(|t| {
                 t.font_size = 14.0;
                 t.color = self.fg();
-                t.font_family = "Inter Variable".to_string();
+                t.font_family = InterVariable.name();
             })
             .opacity(0.7)
         };
