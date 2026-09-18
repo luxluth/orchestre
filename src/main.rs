@@ -180,7 +180,7 @@ fn main() {
         landing: LandingState::default(),
         library: LibraryState::default(),
         album_page: AlbumState::default(),
-        theme: Theme::Light,
+        theme: Theme::Dark,
         orchestra: None,
     };
 

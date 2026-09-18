@@ -298,7 +298,7 @@ pub fn render(
 
     let scrollbar_style = ScrollbarStyle {
         thumb_color: main_fg,
-        track_color: Some(main_fg.with_alphaf(0.5)),
+        track_color: Some(main_fg.with_alphaf(0.3)),
         ..Default::default()
     };
 

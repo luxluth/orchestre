@@ -18,9 +18,11 @@ use track::{Album, Artist, Cover, Id, IdKey, IdStore, MusicCollection, Song, Tim
 
 use crate::orchestra::mu_thread::{AppMsg, OrchestraMsg};
 
+pub mod audio;
 pub mod di;
 pub mod kmeans;
 pub mod mu_thread;
+pub mod source;
 pub mod track;
 
 pub struct Utils;
