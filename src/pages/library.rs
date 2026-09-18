@@ -16,6 +16,8 @@ use mtk::{
     },
 };
 
+use super::ArtistLink;
+
 use crate::{
     fonts::Font::{InterVariable, Iosevka},
     icons::{
@@ -46,12 +48,6 @@ pub enum LibraryMsg {
     SetSortMetric(SortMetric),
     ClickAlbum(Id),
     SetListRunOffset(f32),
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum ArtistLink {
-    Separator,
-    Link(Id),
 }
 
 pub fn song_pill(
@@ -604,13 +600,13 @@ pub fn render(
 
     column((
         column((
-            text("Library").style(Style::new().apply(theme.heading())),
+            text("Library").style(Style::new().apply(theme.heading(None))),
             text(if song_count > 1 {
                 format!("{} songs", song_count)
             } else {
                 format!("{} song", song_count)
             })
-            .style(Style::new().apply(theme.subtitle())),
+            .style(Style::new().apply(theme.subtitle(None))),
         )),
         row((
             column((page_filter(state, theme), songs_list)).style(

@@ -197,12 +197,22 @@ impl Orchestra {
                     audio.album = Some(album_id);
                     if let Some(genres) = tag.genre() {
                         if genres.contains(';') {
-                            let genres: Vec<String> =
-                                genres.split(';').map(|x| x.trim().to_string()).collect();
+                            let genres: Vec<String> = genres
+                                .split(';')
+                                .filter_map(|x| {
+                                    let g = x.trim().to_string();
+                                    if g.is_empty() { None } else { Some(g) }
+                                })
+                                .collect();
                             album.genres.extend(genres);
                         } else {
-                            let genres: Vec<String> =
-                                genres.split(' ').map(|x| x.trim().to_string()).collect();
+                            let genres: Vec<String> = genres
+                                .split(' ')
+                                .filter_map(|x| {
+                                    let g = x.trim().to_string();
+                                    if g.is_empty() { None } else { Some(g) }
+                                })
+                                .collect();
                             album.genres.extend(genres);
                         }
                     }

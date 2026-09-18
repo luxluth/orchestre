@@ -677,7 +677,7 @@ checksum = "af491d569909a7e4dee0ad7db7f5341fef5c614d5b8ec8cf765732aba3cff681"
 dependencies = [
  "serde",
  "termcolor",
- "unicode-width 0.1.14",
+ "unicode-width 0.2.2",
 ]
 
 [[package]]
@@ -2617,13 +2617,13 @@ dependencies = [
 
 [[package]]
 name = "mtk-layout"
-version = "0.1.0-beta.2"
-source = "git+https://github.com/luxluth/mtk.git?branch=master#849f9ffcb1ba63236e8f45271ceb6c13de6a19ff"
+version = "0.1.0-beta.3"
+source = "git+https://github.com/luxluth/mtk.git?branch=master#b4b7c57c45660787bd217b4941a5a65453b56cef"
 
 [[package]]
 name = "mtk-macro"
-version = "0.1.0-beta.2"
-source = "git+https://github.com/luxluth/mtk.git?branch=master#849f9ffcb1ba63236e8f45271ceb6c13de6a19ff"
+version = "0.1.0-beta.3"
+source = "git+https://github.com/luxluth/mtk.git?branch=master#b4b7c57c45660787bd217b4941a5a65453b56cef"
 dependencies = [
  "quote",
  "syn 3.0.5",
@@ -2631,8 +2631,8 @@ dependencies = [
 
 [[package]]
 name = "mtk-rs"
-version = "0.1.0-beta.2"
-source = "git+https://github.com/luxluth/mtk.git?branch=master#849f9ffcb1ba63236e8f45271ceb6c13de6a19ff"
+version = "0.1.0-beta.4"
+source = "git+https://github.com/luxluth/mtk.git?branch=master#b4b7c57c45660787bd217b4941a5a65453b56cef"
 dependencies = [
  "accesskit",
  "arboard",
@@ -3195,7 +3195,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.45.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

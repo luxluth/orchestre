@@ -11,7 +11,7 @@ mod orchestra;
 mod pages;
 
 use mtk::{
-    BoxedView, BoxedViewExt, Lens, Motion, PageTransition,
+    Lens, Motion, PageTransition, switch,
     ui::{View, ViewAdaptExt, router},
     windowing::{Window, WindowAttributes},
 };
@@ -105,7 +105,10 @@ fn update(state: &mut Supervisor, msg: AppMsg) {
                 println!("{artist:?}");
             }
             LibraryMsg::ClickAlbum(album_id) => {
-                state.album_page = AlbumState { album_id };
+                state.album_page = AlbumState {
+                    album_id,
+                    hovered_song_id: None,
+                };
                 state.current_page = Page::Album;
             }
             LibraryMsg::SetListRunOffset(offset) => {
@@ -116,6 +119,18 @@ fn update(state: &mut Supervisor, msg: AppMsg) {
         AppMsg::AlbumPage(msg) => match msg {
             AlbumMsg::GotoLibrary => {
                 state.current_page = Page::Library;
+            }
+            AlbumMsg::ClickArtist(artist_id, _) => {
+                let orch = state.orchestra.as_ref().unwrap();
+                let guard = orch.load();
+                let artist = guard.get_artist(&artist_id);
+                println!("{artist:?}");
+            }
+            AlbumMsg::HoverSong(id) => {
+                state.album_page.hovered_song_id = Some(id);
+            }
+            AlbumMsg::HoverSongQuit => {
+                state.album_page.hovered_song_id = None;
             }
         },
     }
@@ -136,22 +151,17 @@ fn app(state: &Supervisor) -> impl View<Supervisor, Message = AppMsg> + use<> {
     })
 }
 
-fn render_page(state: &Supervisor) -> BoxedView<Supervisor, AppMsg> {
-    match state.current_page {
-        Page::Landing => pages::landing::render(&state.landing, state.theme)
-            .adapt(Supervisor::landing, AppMsg::Landing)
-            .boxed(),
+fn render_page(state: &Supervisor) -> impl View<Supervisor, Message = AppMsg> + use<> {
+    switch! {
+        match state.current_page {
+            Page::Landing => pages::landing::render(&state.landing, state.theme)
+                .adapt(Supervisor::landing, AppMsg::Landing),
 
-        Page::Library => {
-            pages::library::render(&state.library, state.orchestra.clone(), state.theme)
-                .adapt(Supervisor::library, AppMsg::Library)
-                .boxed()
-        }
+            Page::Library => pages::library::render(&state.library, state.orchestra.clone(), state.theme)
+                .adapt(Supervisor::library, AppMsg::Library),
 
-        Page::Album => {
-            pages::album::render(&state.album_page, state.orchestra.clone(), state.theme)
-                .adapt(Supervisor::album_page, AppMsg::AlbumPage)
-                .boxed()
+            Page::Album => pages::album::render(&state.album_page, state.orchestra.clone(), state.theme)
+                .adapt(Supervisor::album_page, AppMsg::AlbumPage),
         }
     }
 }

@@ -2,11 +2,17 @@ use std::time::Duration;
 
 use mtk::{Color, Style, clr, hsl, text_property::FontWeight};
 
-use crate::fonts::Font::InterVariable;
+use crate::{fonts::Font::InterVariable, orchestra::track::Id};
 
 pub mod album;
 pub mod landing;
 pub mod library;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ArtistLink {
+    Separator,
+    Link(Id),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Theme {
@@ -38,22 +44,35 @@ impl Theme {
     colored!(teal_gray, clr!(0x2f2f2fff), clr!(0xddddddff));
     colored!(teal_gray_accent, clr!(0x222222ff), clr!(0x9a9a9aff));
 
-    pub fn heading(&self) -> impl Fn(Style) -> Style + '_ {
+    pub fn heading(&self, color: Option<Color>) -> impl Fn(Style) -> Style + '_ {
         return move |s| {
             s.update_text_style(|t| {
                 t.font_size = 48.0;
-                t.color = clr!(ll_blue);
+                t.color = color.unwrap_or(clr!(ll_blue));
                 t.font_family = InterVariable.name();
                 t.font_weight = FontWeight::BOLD;
+                t.wrap = true;
             })
         };
     }
 
-    pub fn subtitle(&self) -> impl Fn(Style) -> Style + '_ {
+    pub fn h2(&self, color: Option<Color>) -> impl Fn(Style) -> Style + '_ {
+        return move |s| {
+            s.update_text_style(|t| {
+                t.font_size = 32.0;
+                t.color = color.unwrap_or(self.fg());
+                t.font_family = InterVariable.name();
+                t.font_weight = FontWeight::BOLD;
+                t.wrap = true;
+            })
+        };
+    }
+
+    pub fn subtitle(&self, color: Option<Color>) -> impl Fn(Style) -> Style + '_ {
         return move |s| {
             s.update_text_style(|t| {
                 t.font_size = 14.0;
-                t.color = self.fg();
+                t.color = color.unwrap_or(self.fg());
                 t.font_family = InterVariable.name();
             })
             .opacity(0.7)
