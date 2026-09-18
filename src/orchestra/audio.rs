@@ -1,24 +1,47 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
+use rand::seq::SliceRandom;
+use uuid::Uuid;
+
+use crate::orchestra::track::{Id, MusicCollection};
+
 use super::source::AudioSource;
-use super::track::{Id, Song};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QueueItem {
+    pub queue_id: Uuid,
+    pub song_id: Id,
+}
+
+impl QueueItem {
+    pub fn new(song_id: Id) -> Self {
+        Self {
+            queue_id: Uuid::new_v4(),
+            song_id,
+        }
+    }
+}
 
 pub struct PlayingSong {
-    id: Id,
-    qorigin: QueueKind,
-    source: AudioSource,
+    pub queue_id: Uuid,
+    pub song_id: Id,
+    pub qorigin: QueueKind,
+    pub source: AudioSource,
 }
 
 #[derive(Default)]
 pub struct MusicPlayer {
-    pub playback_queue: Vec<Song>,
-    pub override_queue: Vec<Song>,
-    pub pq_cursor: usize,
+    pub playback_queue: Vec<QueueItem>,
+    pub override_queue: Vec<QueueItem>,
+    pub order: Vec<usize>,
+    pub cursor: usize,
 
     pub playing_song: Option<PlayingSong>,
-    pub history: usize,
+    pub history: Vec<QueueItem>,
 
     pub loop_mode: LoopMode,
+    pub is_shuffled: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -35,23 +58,32 @@ pub enum LoopMode {
     Queue,
 }
 
+#[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
+enum ClusterKey {
+    Artist(Id),
+    Album(Id),
+    Track(Id),
+}
+
 impl MusicPlayer {
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Appends a track to the end of the playback queue
-    pub fn enqueue(&mut self, song: Song) {
-        self.playback_queue.push(song);
+    pub fn enqueue(&mut self, song_id: Id) {
+        let idx = self.playback_queue.len();
+        self.playback_queue.push(QueueItem::new(song_id));
+        self.order.push(idx);
     }
 
     /// Inserts a track directly after the currently playing item
-    pub fn enqueue_next(&mut self, song: Song) {
-        self.override_queue.push(song);
+    pub fn enqueue_next(&mut self, song_id: Id) {
+        self.override_queue.push(QueueItem::new(song_id));
     }
 
     /// Removes a track at a specific index from the specified queue
-    pub fn remove(&mut self, index: usize, qkind: QueueKind) -> Option<Song> {
+    pub fn remove(&mut self, index: usize, qkind: QueueKind) -> Option<QueueItem> {
         match qkind {
             QueueKind::Normal => {
                 if index < self.playback_queue.len() {
@@ -70,59 +102,131 @@ impl MusicPlayer {
         }
     }
 
+    pub fn set_shuffle(&mut self, enabled: bool, collection: &MusicCollection) {
+        if self.is_shuffled == enabled {
+            return;
+        }
+
+        self.is_shuffled = enabled;
+
+        if self.playback_queue.is_empty() {
+            self.order.clear();
+            self.cursor = 0;
+            return;
+        }
+
+        if enabled {
+            let key_extractor = |&idx: &usize| -> ClusterKey {
+                let song_id = self.playback_queue[idx].song_id;
+                let Some(song) = collection.songs.get(&song_id) else {
+                    return ClusterKey::Track(song_id);
+                };
+
+                if let Some(&artist_id) = song.artists.first() {
+                    ClusterKey::Artist(artist_id)
+                } else if let Some(album_id) = song.album {
+                    ClusterKey::Album(album_id)
+                } else {
+                    ClusterKey::Track(song_id)
+                }
+            };
+
+            let is_normal_playing = self
+                .playing_song
+                .as_ref()
+                .map_or(false, |ps| ps.qorigin == QueueKind::Normal);
+
+            if is_normal_playing && self.cursor < self.order.len() {
+                let current_actual_idx = self.order[self.cursor];
+
+                let remaining: Vec<usize> = (0..self.playback_queue.len())
+                    .filter(|&i| i != current_actual_idx)
+                    .collect();
+
+                let shuffled_remaining = balanced_shuffle(&remaining, key_extractor);
+
+                let mut new_order = Vec::with_capacity(self.playback_queue.len());
+                new_order.push(current_actual_idx);
+                new_order.extend(shuffled_remaining);
+
+                self.order = new_order;
+                self.cursor = 0;
+            } else {
+                let all_indices: Vec<usize> = (0..self.playback_queue.len()).collect();
+                self.order = balanced_shuffle(&all_indices, key_extractor);
+                self.cursor = 0;
+            }
+        } else {
+            // Restore chronological order and reposition cursor to the active track
+            if let Some(current_actual_idx) = self.order.get(self.cursor).copied() {
+                self.order = (0..self.playback_queue.len()).collect();
+                self.cursor = current_actual_idx;
+            } else {
+                self.order = (0..self.playback_queue.len()).collect();
+                self.cursor = 0;
+            }
+        }
+    }
+
     /// Clears upcoming tracks without stopping the active song
     pub fn clear_queue(&mut self) {
         self.override_queue.clear();
         self.playback_queue.clear();
-        self.history = 0;
-        self.pq_cursor = 0;
+        self.order.clear();
+        self.history.clear();
+        self.cursor = 0;
     }
 
-    fn load_and_play(&mut self, song: Song, qorigin: QueueKind) {
-        let id = song.id;
-        // TODO:(agc_enable) make agc_enable configurable and check sync output
-        let mut source = AudioSource::new(song, true);
+    fn load_and_play(&mut self, item: QueueItem, qorigin: QueueKind, collection: &MusicCollection) {
+        let Some(song) = collection.songs.get(&item.song_id) else {
+            return;
+        };
+
+        let mut source = AudioSource::new(song.file_path.clone(), song.duration, true);
         if source.sync() {
             source.play();
             self.playing_song = Some(PlayingSong {
-                id,
+                queue_id: item.queue_id,
+                song_id: item.song_id,
                 qorigin,
                 source,
             });
-        } else {
-            // TODO: notify not playable
         }
     }
 
     /// Transitions to the next song in queue
-    pub fn next(&mut self) {
+    pub fn next(&mut self, collection: &MusicCollection) {
         if let Some(ps) = self.playing_song.as_ref() {
             if ps.qorigin == QueueKind::Normal {
-                self.history += 1;
+                self.history.push(QueueItem {
+                    queue_id: ps.queue_id,
+                    song_id: ps.song_id,
+                });
             }
         }
 
         if !self.override_queue.is_empty() {
-            let song = self.override_queue.remove(0);
-            self.load_and_play(song, QueueKind::Override);
+            let item = self.override_queue.remove(0);
+            self.load_and_play(item, QueueKind::Override, collection);
             return;
         }
 
-        let next_idx = match &self.playing_song {
-            Some(ps) if ps.qorigin == QueueKind::Normal => self.pq_cursor + 1,
-            _ => self.pq_cursor,
+        let next_cursor = match &self.playing_song {
+            Some(ps) if ps.qorigin == QueueKind::Normal => self.cursor + 1,
+            _ => self.cursor,
         };
 
-        if next_idx < self.playback_queue.len() {
-            self.pq_cursor = next_idx;
-            let song = self.playback_queue[self.pq_cursor].clone();
-            self.load_and_play(song, QueueKind::Normal);
+        if next_cursor < self.order.len() {
+            self.cursor = next_cursor;
+            let actual_idx = self.order[self.cursor];
+            let item = self.playback_queue[actual_idx];
+            self.load_and_play(item, QueueKind::Normal, collection);
         } else {
             self.playing_song = None;
         }
     }
 
-    pub fn previous(&mut self) {
+    pub fn previous(&mut self, collection: &MusicCollection) {
         if let Some(ps) = self.playing_song.as_ref() {
             if ps.source.elapsed() > Duration::from_secs(5) {
                 let _ = ps.source.seek(Duration::from_secs(0));
@@ -132,93 +236,192 @@ impl MusicPlayer {
 
         if let Some(ps) = self.playing_song.as_ref() {
             if ps.qorigin == QueueKind::Override {
-                if self.pq_cursor < self.playback_queue.len() {
-                    let song = self.playback_queue[self.pq_cursor].clone();
-                    self.load_and_play(song, QueueKind::Normal);
+                if self.cursor < self.order.len() {
+                    let actual_idx = self.order[self.cursor];
+                    let item = self.playback_queue[actual_idx];
+                    self.load_and_play(item, QueueKind::Normal, collection);
                 }
                 return;
             }
         }
 
-        if self.history == 0 || self.pq_cursor == 0 {
+        let Some(prev_item) = self.history.pop() else {
             if let Some(ps) = self.playing_song.as_ref() {
                 let _ = ps.source.seek(Duration::from_secs(0));
             }
             return;
-        }
+        };
 
-        self.history = self.history.saturating_sub(1);
-        self.pq_cursor = self.pq_cursor.saturating_sub(1);
-
-        if let Some(song) = self.playback_queue.get(self.pq_cursor).cloned() {
-            self.load_and_play(song, QueueKind::Normal);
-        }
+        self.cursor = self.cursor.saturating_sub(1);
+        self.load_and_play(prev_item, QueueKind::Normal, collection);
     }
 
-    pub fn play_index(&mut self, index: usize, qkind: QueueKind) {
-        match qkind {
-            QueueKind::Normal => {
-                if index < self.playback_queue.len() {
-                    if let Some(ps) = self.playing_song.as_ref() {
-                        if ps.qorigin == QueueKind::Normal && index > self.pq_cursor {
-                            self.history += index - self.pq_cursor;
-                        }
-                    }
-                    self.pq_cursor = index;
-                    let song = self.playback_queue[self.pq_cursor].clone();
-                    self.load_and_play(song, QueueKind::Normal);
-                }
-            }
-            QueueKind::Override => {
-                if index < self.override_queue.len() {
-                    let song = self.override_queue.remove(index);
-                    self.load_and_play(song, QueueKind::Override);
-                }
-            }
-        }
-    }
-
-    pub fn queue(&self, qkind: QueueKind) -> &[Song] {
+    pub fn queue<'a>(&'a self, qkind: QueueKind) -> Box<dyn Iterator<Item = &'a QueueItem> + 'a> {
         match qkind {
             QueueKind::Normal => {
                 let start = match &self.playing_song {
                     Some(ps) if ps.qorigin == QueueKind::Normal => {
-                        (self.pq_cursor + 1).min(self.playback_queue.len())
+                        (self.cursor + 1).min(self.order.len())
                     }
-                    _ => self.pq_cursor.min(self.playback_queue.len()),
+                    _ => self.cursor.min(self.order.len()),
                 };
-                &self.playback_queue[start..]
+
+                Box::new(
+                    self.order[start..]
+                        .iter()
+                        .map(|&idx| &self.playback_queue[idx]),
+                )
             }
-            QueueKind::Override => &self.override_queue,
+            QueueKind::Override => Box::new(self.override_queue.iter()),
         }
     }
 
-    pub fn update(&mut self) {
+    pub fn update(&mut self, collection: &MusicCollection) {
         let has_ended = self
             .playing_song
             .as_ref()
             .map_or(false, |ps| ps.source.has_ended());
 
-        if has_ended {
-            if self.loop_mode == LoopMode::Track
-                && let Some(ps) = self.playing_song.as_ref()
-            {
-                ps.source.pause();
-                let _ = ps.source.seek(Duration::from_secs(0));
-                ps.source.play();
+        if !has_ended {
+            return;
+        }
+
+        if self.loop_mode == LoopMode::Track {
+            if let Some(ps) = self.playing_song.as_ref() {
+                let item = QueueItem {
+                    queue_id: ps.queue_id,
+                    song_id: ps.song_id,
+                };
+                let qorigin = ps.qorigin;
+                self.load_and_play(item, qorigin, collection);
                 return;
             }
+        }
 
-            self.next();
+        self.next(collection);
 
-            if self.playing_song.is_none() && self.loop_mode == LoopMode::Queue {
-                self.pq_cursor = 0;
-                self.next();
-            }
+        if self.playing_song.is_none()
+            && self.loop_mode == LoopMode::Queue
+            && !self.order.is_empty()
+        {
+            self.cursor = 0;
+            let actual_idx = self.order[0];
+            let item = self.playback_queue[actual_idx];
+            self.load_and_play(item, QueueKind::Normal, collection);
         }
     }
 
     pub fn set_loop_mode(&mut self, mode: LoopMode) {
         self.loop_mode = mode;
     }
+}
+
+impl MusicPlayer {
+    pub fn play_by_id(
+        &mut self,
+        queue_id: Uuid,
+        qkind: QueueKind,
+        collection: &MusicCollection,
+    ) -> bool {
+        match qkind {
+            QueueKind::Normal => {
+                let found_pos = self
+                    .order
+                    .iter()
+                    .enumerate()
+                    .find_map(|(pos, &actual_idx)| {
+                        if self.playback_queue[actual_idx].queue_id == queue_id {
+                            Some((pos, actual_idx))
+                        } else {
+                            None
+                        }
+                    });
+
+                let Some((target_pos, actual_idx)) = found_pos else {
+                    return false;
+                };
+
+                if let Some(ps) = self.playing_song.as_ref() {
+                    if ps.qorigin == QueueKind::Normal && target_pos > self.cursor {
+                        for pos in self.cursor..target_pos {
+                            let idx = self.order[pos];
+                            self.history.push(self.playback_queue[idx]);
+                        }
+                    }
+                }
+
+                self.cursor = target_pos;
+                let item = self.playback_queue[actual_idx];
+                self.load_and_play(item, QueueKind::Normal, collection);
+                true
+            }
+            QueueKind::Override => {
+                let pos = self
+                    .override_queue
+                    .iter()
+                    .position(|item| item.queue_id == queue_id);
+
+                let Some(idx) = pos else {
+                    return false;
+                };
+
+                let item = self.override_queue.remove(idx);
+                self.load_and_play(item, QueueKind::Override, collection);
+                true
+            }
+        }
+    }
+}
+
+pub fn balanced_shuffle<T: Clone, K: std::hash::Hash + Eq>(
+    items: &[T],
+    key_extractor: impl Fn(&T) -> K,
+) -> Vec<T> {
+    if items.len() <= 2 {
+        let mut res = items.to_vec();
+        res.shuffle(&mut rand::rng());
+        return res;
+    }
+
+    let mut buckets: HashMap<K, Vec<T>> = HashMap::new();
+    for item in items {
+        buckets
+            .entry(key_extractor(item))
+            .or_default()
+            .push(item.clone());
+    }
+
+    let mut rng = rand::rng();
+    for bucket in buckets.values_mut() {
+        bucket.shuffle(&mut rng);
+    }
+
+    let mut bucket_list: Vec<Vec<T>> = buckets.into_values().collect();
+    let mut result = Vec::with_capacity(items.len());
+
+    while !bucket_list.is_empty() {
+        // Sort descending by remaining tracks to prevent starvation at the end
+        bucket_list.sort_by_key(|b| std::cmp::Reverse(b.len()));
+
+        let mut i = 0;
+        while i < bucket_list.len() {
+            if let Some(item) = bucket_list[i].pop() {
+                result.push(item);
+            }
+            if bucket_list[i].is_empty() {
+                bucket_list.swap_remove(i);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    // Add mild localized jitter to soften round-robin rhythm
+    for i in 0..result.len().saturating_sub(2) {
+        if rand::random::<f32>() < 0.35 {
+            result.swap(i + 1, i + 2);
+        }
+    }
+
+    result
 }

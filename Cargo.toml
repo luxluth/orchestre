@@ -25,6 +25,8 @@ arc-swap = "1.9.2"
 kmeans_colors = "0.7.1"
 palette = "0.7.7"
 image = "0.25.10"
+uuid = { version = "1.26.1", features = ["v4"] }
+rand = "0.10.2"
 
 [features]
 default = []

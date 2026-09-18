@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -16,8 +17,6 @@ use symphonia::core::formats::TrackType;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-
-use crate::orchestra::track::Song;
 
 pub const POINTS_PER_FRAME: usize = 1024;
 pub const NUM_TRAIL_FRAMES: usize = 5;
@@ -172,7 +171,8 @@ impl CachedSoundShape {
 }
 
 pub struct AudioSource {
-    song: Song,
+    pub song_path: PathBuf,
+    pub song_duration: Duration,
     elapsed_micros: Arc<AtomicU64>,
     agc_enabled: Arc<AtomicBool>,
     playback_start: Option<Instant>,
@@ -185,9 +185,10 @@ pub struct AudioSource {
 }
 
 impl AudioSource {
-    pub fn new(song: Song, agc_enabled: bool) -> Self {
+    pub fn new(song_path: PathBuf, song_duration: Duration, agc_enabled: bool) -> Self {
         AudioSource {
-            song,
+            song_path,
+            song_duration,
             elapsed_micros: Arc::new(AtomicU64::new(0)),
             agc_enabled: Arc::new(AtomicBool::new(agc_enabled)),
             playback_start: None,
@@ -201,7 +202,7 @@ impl AudioSource {
     }
 
     pub fn sync(&mut self) -> bool {
-        match CachedSoundShape::from_audio_file(&self.song.file_path) {
+        match CachedSoundShape::from_audio_file(&self.song_path) {
             Ok(shape) => {
                 self.sample_rate = Some(shape.sample_rate);
                 self.cached_shape = Some(Arc::new(shape));
@@ -212,7 +213,7 @@ impl AudioSource {
         let Ok(sink_handle) = rodio::DeviceSinkBuilder::open_default_sink() else {
             return false;
         };
-        let Ok(file) = File::open(&self.song.file_path) else {
+        let Ok(file) = File::open(&self.song_path) else {
             return false;
         };
         let Ok(decoder) = rodio::Decoder::try_from(file) else {
@@ -343,7 +344,7 @@ impl AudioSource {
     }
 
     pub fn duration(&self) -> Duration {
-        self.song.duration
+        self.song_duration
     }
 
     pub fn progress(&self) -> f32 {

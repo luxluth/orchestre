@@ -3163,11 +3163,13 @@ dependencies = [
  "mime_guess",
  "mtk-rs",
  "palette",
+ "rand 0.10.2",
  "rfd",
  "rodio",
  "rust-i18n",
  "symphonia 0.6.1",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
