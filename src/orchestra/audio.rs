@@ -373,7 +373,24 @@ impl MusicPlayer {
     }
 }
 
-pub fn balanced_shuffle<T: Clone, K: std::hash::Hash + Eq>(
+impl MusicPlayer {
+    // Applies global gain scaling across all active and future players
+    // pub fn set_master_volume(&mut self, volume: f32) {}
+
+    // Toggles output mute while caching previous gain settings
+    // pub fn toggle_mute(&mut self) {}
+
+    // Fades down the active track while initializing and fading up the next track concurrently
+    // pub fn crossfade(&mut self, duration: Duration) {}
+
+    // Smoothly lowers gain before halting playback.
+    // pub fn fade_out_and_pause(&mut self, duration: Duration) {}
+
+    // Returns the active audio device name
+    // pub fn current_output_device(&self) -> String {}
+}
+
+fn balanced_shuffle<T: Clone, K: std::hash::Hash + Eq>(
     items: &[T],
     key_extractor: impl Fn(&T) -> K,
 ) -> Vec<T> {
