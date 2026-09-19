@@ -19,6 +19,7 @@ use mtk::{
 use crate::{
     orchestra::{
         Orchestra,
+        audio::{GlobalPlayerCmd, MusicPlayer},
         mu_thread::{AppMsg, Mu, MuCommand, OrchestraMsg},
     },
     pages::{
@@ -45,12 +46,16 @@ pub struct Supervisor {
     pub album_page: AlbumState,
     pub theme: Theme,
     pub orchestra: Option<Arc<ArcSwap<Orchestra>>>,
+    mp_sx: Sender<GlobalPlayerCmd>,
 }
 
 fn update(state: &mut Supervisor, msg: AppMsg) {
     match msg {
         AppMsg::Orchestra(omsg) => match omsg {
             OrchestraMsg::Ready(orch) => {
+                let _ = state
+                    .mp_sx
+                    .send(GlobalPlayerCmd::SetOrchestra(orch.clone()));
                 state.landing.log = None;
                 state.landing.is_indexing = true;
                 state.orchestra = Some(orch);
@@ -114,6 +119,11 @@ fn update(state: &mut Supervisor, msg: AppMsg) {
             LibraryMsg::SetListRunOffset(offset) => {
                 state.library.list_run_offset = offset;
             }
+            LibraryMsg::Play(id) => {
+                let _ = state.mp_sx.send(GlobalPlayerCmd::ClearQueue);
+                let _ = state.mp_sx.send(GlobalPlayerCmd::Enqueue(id));
+                let _ = state.mp_sx.send(GlobalPlayerCmd::Play);
+            }
         },
 
         AppMsg::AlbumPage(msg) => match msg {
@@ -166,16 +176,19 @@ fn render_page(state: &Supervisor) -> impl View<Supervisor, Message = AppMsg> + 
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let _ = env_logger::try_init();
 
     let (width, height) = (600, 600);
 
     let mu = Mu::new();
+    let (music_player, mp_sx) = MusicPlayer::new();
     let mu_sx = mu.sender();
 
     let orchestra_mgr = Supervisor {
         mu_sx,
+        mp_sx,
         current_page: Page::Landing,
         landing: LandingState::default(),
         library: LibraryState::default(),
@@ -190,6 +203,7 @@ fn main() {
     window = fonts::Font::NotoSansCJK.load(window);
 
     mu.spawn(window.handle());
+    music_player.spawn(window.handle());
 
     #[cfg(feature = "debug")]
     window.enable_terminal_debugger();

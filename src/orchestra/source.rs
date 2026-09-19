@@ -232,13 +232,13 @@ impl AudioSource {
             agc_source.set_enabled(agc_enabled_clone.load(Ordering::Relaxed));
         });
 
-        let final_source = controlled.pausable(true).track_position().periodic_access(
-            Duration::from_millis(1),
-            move |source| {
-                let micros = source.get_pos().as_micros() as u64;
-                playback_pos.store(micros, Ordering::Relaxed);
-            },
-        );
+        let final_source =
+            controlled
+                .track_position()
+                .periodic_access(Duration::from_millis(1), move |source| {
+                    let micros = source.get_pos().as_micros() as u64;
+                    playback_pos.store(micros, Ordering::Relaxed);
+                });
 
         let player = rodio::Player::connect_new(sink_handle.mixer());
         player.append(final_source);

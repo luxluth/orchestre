@@ -6,7 +6,7 @@ use mtk::{
     ScrollbarStyle, Size, Style, SvgData, TextSpan, TextStyle, TransitionProperty,
     VerticalAlignment,
     animation::Curve,
-    clr,
+    clr, switch,
     text_property::{Alignment, FontWeight},
     ui::{
         EventKind, View, ViewEventExt, ViewStyleExt,
@@ -48,6 +48,7 @@ pub enum LibraryMsg {
     SetSortMetric(SortMetric),
     ClickAlbum(Id),
     SetListRunOffset(f32),
+    Play(Id),
 }
 
 pub fn song_pill(
@@ -65,27 +66,24 @@ pub fn song_pill(
 
     let (artist_names, artistlinks_spans) = get_artist_links(song, orchestra, theme);
 
-    let leading = container((
-        is_hovered.then_some(
-            svg(SvgData::from_str(PLAY).unwrap())
-                .color(theme.fg())
-                .fill(theme.fg())
-                .stroke_width(0.)
-                .fit(ObjectFit::Contain)
-                .style(Style::new().width(Size::Fixed(18)).height(Size::Fixed(18))),
-        ),
-        (!is_hovered).then_some(
-            text(&format!("{}", index + 1)).style(
-                Style::new().set_text_style(
-                    TextStyle::new()
-                        .font_size(14.)
-                        .color(theme.fg().with_alpha(180))
-                        .font_weight(FontWeight::BOLD)
-                        .font_family(Iosevka.name()),
-                ),
+    let leading = container((switch! {
+        if is_hovered => svg(SvgData::from_str(PLAY).unwrap())
+            .color(theme.fg())
+            .fill(theme.fg())
+            .stroke_width(0.)
+            .fit(ObjectFit::Contain)
+            .style(Style::new().width(Size::Fixed(18)).height(Size::Fixed(18)).on_active(|s| s.scale(0.96)))
+            .on_event(EventKind::Click, move |_| Some(LibraryMsg::Play(id))),
+        else => text(&format!("{}", index + 1)).style(
+            Style::new().set_text_style(
+                TextStyle::new()
+                    .font_size(14.)
+                    .color(theme.fg().with_alpha(180))
+                    .font_weight(FontWeight::BOLD)
+                    .font_family(Iosevka.name()),
             ),
         ),
-    ))
+    },))
     .style(
         Style::new()
             .width(Size::Fixed(28))

@@ -1,9 +1,13 @@
-use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
+use std::{collections::HashMap, sync::mpsc};
 
+use arc_swap::ArcSwap;
+use mtk::windowing::WindowHandle;
 use rand::seq::SliceRandom;
 use uuid::Uuid;
 
+use crate::orchestra::Orchestra;
 use crate::orchestra::track::{Id, MusicCollection};
 
 use super::source::AudioSource;
@@ -30,7 +34,6 @@ pub struct PlayingSong {
     pub source: AudioSource,
 }
 
-#[derive(Default)]
 pub struct MusicPlayer {
     pub playback_queue: Vec<QueueItem>,
     pub override_queue: Vec<QueueItem>,
@@ -42,6 +45,9 @@ pub struct MusicPlayer {
 
     pub loop_mode: LoopMode,
     pub is_shuffled: bool,
+
+    rx: mpsc::Receiver<GlobalPlayerCmd>,
+    orchestra: Option<Arc<ArcSwap<Orchestra>>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -65,9 +71,86 @@ enum ClusterKey {
     Track(Id),
 }
 
+#[derive(Clone)]
+pub enum GlobalPlayerCmd {
+    SetOrchestra(Arc<ArcSwap<Orchestra>>),
+    Enqueue(Id),
+    EnqueueMany(Vec<Id>),
+    ClearQueue,
+    Play,
+    Next,
+}
+
 impl MusicPlayer {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new() -> (Self, mpsc::Sender<GlobalPlayerCmd>) {
+        let (sx, rx) = mpsc::channel();
+        (
+            Self {
+                playback_queue: Vec::new(),
+                override_queue: Vec::new(),
+                order: Vec::new(),
+                cursor: 0,
+
+                playing_song: None,
+                history: Vec::new(),
+
+                loop_mode: LoopMode::default(),
+                is_shuffled: false,
+
+                rx,
+                orchestra: None,
+            },
+            sx,
+        )
+    }
+
+    pub fn spawn(mut self, handle: WindowHandle<super::mu_thread::AppMsg>) {
+        std::thread::Builder::new()
+            .name("musicplayer".to_string())
+            .spawn(move || {
+                while let Ok(cmd) = self.rx.recv() {
+                    match cmd {
+                        GlobalPlayerCmd::SetOrchestra(orch) => self.orchestra = Some(orch),
+                        GlobalPlayerCmd::Enqueue(song_id) => {
+                            self.enqueue(song_id);
+                        }
+                        GlobalPlayerCmd::EnqueueMany(ids) => {
+                            for song_id in ids {
+                                self.enqueue(song_id);
+                            }
+                        }
+                        GlobalPlayerCmd::Play => {
+                            if let Some(orch) = self.orchestra.as_ref() {
+                                let guard = orch.load();
+                                if let Some(ps) = self.playing_song.as_ref() {
+                                    if ps.source.is_paused() {
+                                        ps.source.play();
+                                        continue;
+                                    }
+                                }
+                                // Start playback of the track currently at cursor
+                                if self.cursor < self.order.len() {
+                                    let actual_idx = self.order[self.cursor];
+                                    let item = self.playback_queue[actual_idx];
+                                    self.load_and_play(item, QueueKind::Normal, &guard.collection);
+                                }
+                            }
+                        }
+                        GlobalPlayerCmd::Next => {
+                            if let Some(orch) = self.orchestra.as_ref() {
+                                let guard = orch.load();
+                                self.next(&guard.collection);
+                            } else {
+                                // TODO: should be unreachable!()
+                            }
+                        }
+                        GlobalPlayerCmd::ClearQueue => {
+                            self.clear_queue();
+                        }
+                    }
+                }
+            })
+            .unwrap();
     }
 
     /// Appends a track to the end of the playback queue
@@ -182,7 +265,10 @@ impl MusicPlayer {
             return;
         };
 
+        eprintln!("[debug]: song to play :: {song:?}");
+
         let mut source = AudioSource::new(song.file_path.clone(), song.duration, true);
+
         if source.sync() {
             source.play();
             self.playing_song = Some(PlayingSong {
