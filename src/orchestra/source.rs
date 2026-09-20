@@ -185,11 +185,16 @@ pub struct AudioSource {
 }
 
 impl AudioSource {
-    pub fn new(song_path: PathBuf, song_duration: Duration, agc_enabled: bool) -> Self {
+    pub fn new(
+        song_path: PathBuf,
+        song_duration: Duration,
+        agc_enabled: bool,
+        progress_ref: Arc<AtomicU64>,
+    ) -> Self {
         AudioSource {
             song_path,
             song_duration,
-            elapsed_micros: Arc::new(AtomicU64::new(0)),
+            elapsed_micros: progress_ref,
             agc_enabled: Arc::new(AtomicBool::new(agc_enabled)),
             playback_start: None,
             cached_shape: None,

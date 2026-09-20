@@ -11,7 +11,8 @@ use mtk::{
     ui::{
         EventKind, View, ViewEventExt, ViewStyleExt,
         widgets::{
-            SpanGeometry, async_image, column, container, rich_text, row, svg, text, virtual_list,
+            SpanGeometry, async_image, column, container, rich_text, row, svg, text,
+            virtual_list_count,
         },
     },
 };
@@ -37,6 +38,7 @@ pub struct LibraryState {
     pub hovered_song: Option<Id>,
     pub active_filter: Filter,
     pub list_run_offset: f32,
+    pub sorted_songs: Arc<Vec<Song>>,
 }
 
 #[derive(Clone, Debug)]
@@ -543,27 +545,6 @@ pub fn render(
 
     let song_count = guard.collection.songs.len();
 
-    let mut songs: Vec<Song> = guard.collection.songs.values().cloned().collect();
-
-    songs.sort_by(|a, b| {
-        let ordering = match state.active_filter.metric {
-            SortMetric::ByDate => a
-                .created_at
-                .cmp(&b.created_at)
-                .then_with(|| a.title.cmp(&b.title)),
-            SortMetric::ByTitle => a
-                .title
-                .chars()
-                .map(|c| c.to_ascii_lowercase())
-                .cmp(b.title.chars().map(|c| c.to_ascii_lowercase())),
-        };
-
-        match state.active_filter.order {
-            Order::Asc => ordering,
-            Order::Desc => ordering.reverse(),
-        }
-    });
-
     let orch_clone = orchestra.clone();
     let hsid = state.hovered_song;
     const ITEM_HEIGHT: f32 = 45.0;
@@ -574,8 +555,10 @@ pub fn render(
         ..Default::default()
     };
 
-    let songs_list = virtual_list(songs, ITEM_HEIGHT, move |i, song| {
-        container((song_pill(song, hsid, &orch_clone, theme, i),)).style(
+    let songs = state.sorted_songs.clone();
+
+    let songs_list = virtual_list_count(state.sorted_songs.len(), ITEM_HEIGHT, move |i| {
+        container((song_pill(&songs[i], hsid, &orch_clone, theme, i),)).style(
             Style::new()
                 .width(Size::Percent(1.0))
                 .height(Size::Fixed(ITEM_HEIGHT as u32))

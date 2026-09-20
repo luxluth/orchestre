@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 use std::{collections::HashMap, sync::mpsc};
 
@@ -8,6 +9,7 @@ use rand::seq::SliceRandom;
 use uuid::Uuid;
 
 use crate::orchestra::Orchestra;
+use crate::orchestra::mu_thread::AppMsg;
 use crate::orchestra::track::{Id, MusicCollection};
 
 use super::source::AudioSource;
@@ -48,6 +50,7 @@ pub struct MusicPlayer {
 
     rx: mpsc::Receiver<GlobalPlayerCmd>,
     orchestra: Option<Arc<ArcSwap<Orchestra>>>,
+    progress_ref: Option<Arc<AtomicU64>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -81,6 +84,11 @@ pub enum GlobalPlayerCmd {
     Next,
 }
 
+#[derive(Clone)]
+pub enum PlayerMsg {
+    Tick(Duration),
+}
+
 impl MusicPlayer {
     pub fn new() -> (Self, mpsc::Sender<GlobalPlayerCmd>) {
         let (sx, rx) = mpsc::channel();
@@ -99,54 +107,99 @@ impl MusicPlayer {
 
                 rx,
                 orchestra: None,
+                progress_ref: None,
             },
             sx,
         )
     }
 
-    pub fn spawn(mut self, handle: WindowHandle<super::mu_thread::AppMsg>) {
+    fn handle_cmd(
+        &mut self,
+        cmd: GlobalPlayerCmd,
+        _handle: &WindowHandle<super::mu_thread::AppMsg>,
+    ) {
+        match cmd {
+            GlobalPlayerCmd::SetOrchestra(orch) => self.orchestra = Some(orch),
+            GlobalPlayerCmd::Enqueue(song_id) => {
+                self.enqueue(song_id);
+            }
+            GlobalPlayerCmd::EnqueueMany(ids) => {
+                for song_id in ids {
+                    self.enqueue(song_id);
+                }
+            }
+            GlobalPlayerCmd::Play => {
+                if let Some(orch) = self.orchestra.as_ref() {
+                    let guard = orch.load();
+                    if let Some(ps) = self.playing_song.as_ref() {
+                        if ps.source.is_paused() {
+                            ps.source.play();
+                            return;
+                        }
+                    }
+                    // Start playback of the track currently at cursor
+                    if self.cursor < self.order.len() {
+                        let actual_idx = self.order[self.cursor];
+                        let item = self.playback_queue[actual_idx];
+                        self.load_and_play(item, QueueKind::Normal, &guard.collection);
+                    }
+                }
+            }
+            GlobalPlayerCmd::Next => {
+                if let Some(orch) = self.orchestra.as_ref() {
+                    let guard = orch.load();
+                    self.next(&guard.collection);
+                } else {
+                    // TODO: should be unreachable!()
+                }
+            }
+            GlobalPlayerCmd::ClearQueue => {
+                self.clear_queue();
+            }
+        }
+    }
+
+    pub fn spawn(
+        mut self,
+        handle: WindowHandle<super::mu_thread::AppMsg>,
+        progress_ref: Arc<AtomicU64>,
+    ) {
+        self.progress_ref = Some(progress_ref);
         std::thread::Builder::new()
             .name("musicplayer".to_string())
             .spawn(move || {
-                while let Ok(cmd) = self.rx.recv() {
-                    match cmd {
-                        GlobalPlayerCmd::SetOrchestra(orch) => self.orchestra = Some(orch),
-                        GlobalPlayerCmd::Enqueue(song_id) => {
-                            self.enqueue(song_id);
+                loop {
+                    let is_active = self
+                        .playing_song
+                        .as_ref()
+                        .map_or(false, |ps| ps.source.is_playing());
+
+                    let cmd_res = if is_active {
+                        self.rx.recv_timeout(Duration::from_millis(500))
+                    } else {
+                        self.rx
+                            .recv()
+                            .map_err(|_| mpsc::RecvTimeoutError::Disconnected)
+                    };
+
+                    match cmd_res {
+                        Ok(cmd) => {
+                            self.handle_cmd(cmd, &handle);
                         }
-                        GlobalPlayerCmd::EnqueueMany(ids) => {
-                            for song_id in ids {
-                                self.enqueue(song_id);
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            // Heartbeat tick:
+                            if let Some(ps) = self.playing_song.as_ref() {
+                                let elapsed = ps.source.elapsed();
+                                let _ = handle.send(AppMsg::Player(PlayerMsg::Tick(elapsed)));
                             }
-                        }
-                        GlobalPlayerCmd::Play => {
+
+                            // Auto-advance if track finished
                             if let Some(orch) = self.orchestra.as_ref() {
                                 let guard = orch.load();
-                                if let Some(ps) = self.playing_song.as_ref() {
-                                    if ps.source.is_paused() {
-                                        ps.source.play();
-                                        continue;
-                                    }
-                                }
-                                // Start playback of the track currently at cursor
-                                if self.cursor < self.order.len() {
-                                    let actual_idx = self.order[self.cursor];
-                                    let item = self.playback_queue[actual_idx];
-                                    self.load_and_play(item, QueueKind::Normal, &guard.collection);
-                                }
+                                self.update(&guard.collection);
                             }
                         }
-                        GlobalPlayerCmd::Next => {
-                            if let Some(orch) = self.orchestra.as_ref() {
-                                let guard = orch.load();
-                                self.next(&guard.collection);
-                            } else {
-                                // TODO: should be unreachable!()
-                            }
-                        }
-                        GlobalPlayerCmd::ClearQueue => {
-                            self.clear_queue();
-                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     }
                 }
             })
@@ -267,7 +320,12 @@ impl MusicPlayer {
 
         eprintln!("[debug]: song to play :: {song:?}");
 
-        let mut source = AudioSource::new(song.file_path.clone(), song.duration, true);
+        let mut source = AudioSource::new(
+            song.file_path.clone(),
+            song.duration,
+            true,
+            self.progress_ref.clone().unwrap(),
+        );
 
         if source.sync() {
             source.play();

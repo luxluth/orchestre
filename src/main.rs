@@ -1,6 +1,7 @@
 use std::{
     path::PathBuf,
-    sync::{Arc, mpsc::Sender},
+    sync::{Arc, atomic::AtomicU64, mpsc::Sender},
+    time::Duration,
 };
 
 use arc_swap::ArcSwap;
@@ -19,14 +20,15 @@ use mtk::{
 use crate::{
     orchestra::{
         Orchestra,
-        audio::{GlobalPlayerCmd, MusicPlayer},
+        audio::{GlobalPlayerCmd, MusicPlayer, PlayerMsg},
         mu_thread::{AppMsg, Mu, MuCommand, OrchestraMsg},
+        track::Song,
     },
     pages::{
         Theme,
         album::{AlbumMsg, AlbumState},
         landing::{LandingMsg, LandingState},
-        library::{LibraryMsg, LibraryState},
+        library::{FilterTag, LibraryMsg, LibraryState, Order, SortMetric},
     },
 };
 
@@ -41,12 +43,45 @@ enum Page {
 pub struct Supervisor {
     current_page: Page,
     pub mu_sx: Sender<MuCommand>,
+    pub mp_sx: Sender<GlobalPlayerCmd>,
+    pub progress: Duration,
+    pub progress_raw: Arc<AtomicU64>,
     pub landing: LandingState,
     pub library: LibraryState,
     pub album_page: AlbumState,
     pub theme: Theme,
     pub orchestra: Option<Arc<ArcSwap<Orchestra>>>,
-    mp_sx: Sender<GlobalPlayerCmd>,
+}
+
+fn sort_songs(state: &mut Supervisor) {
+    let Some(orch) = state.orchestra.as_ref() else {
+        return;
+    };
+
+    let guard = orch.load();
+
+    let mut songs: Vec<Song> = guard.collection.songs.values().cloned().collect();
+
+    songs.sort_by(|a, b| {
+        let ordering = match state.library.active_filter.metric {
+            SortMetric::ByDate => a
+                .created_at
+                .cmp(&b.created_at)
+                .then_with(|| a.title.cmp(&b.title)),
+            SortMetric::ByTitle => a
+                .title
+                .chars()
+                .map(|c| c.to_ascii_lowercase())
+                .cmp(b.title.chars().map(|c| c.to_ascii_lowercase())),
+        };
+
+        match state.library.active_filter.order {
+            Order::Asc => ordering,
+            Order::Desc => ordering.reverse(),
+        }
+    });
+
+    state.library.sorted_songs = Arc::new(songs);
 }
 
 fn update(state: &mut Supervisor, msg: AppMsg) {
@@ -58,7 +93,8 @@ fn update(state: &mut Supervisor, msg: AppMsg) {
                     .send(GlobalPlayerCmd::SetOrchestra(orch.clone()));
                 state.landing.log = None;
                 state.landing.is_indexing = true;
-                state.orchestra = Some(orch);
+                state.orchestra = Some(orch.clone());
+                sort_songs(state);
                 state.current_page = Page::Library;
             }
             OrchestraMsg::NeedIndexing => {
@@ -96,12 +132,21 @@ fn update(state: &mut Supervisor, msg: AppMsg) {
             }
             LibraryMsg::SetFilterTag(filter_tag) => {
                 state.library.active_filter.tag = filter_tag;
+                if filter_tag == FilterTag::Songs {
+                    sort_songs(state);
+                }
             }
             LibraryMsg::SetFilterOrder(order) => {
                 state.library.active_filter.order = order;
+                if state.library.active_filter.tag == FilterTag::Songs {
+                    sort_songs(state);
+                }
             }
             LibraryMsg::SetSortMetric(sort_metric) => {
                 state.library.active_filter.metric = sort_metric;
+                if state.library.active_filter.tag == FilterTag::Songs {
+                    sort_songs(state);
+                }
             }
             LibraryMsg::ClickArtist(artist_id, _) => {
                 let orch = state.orchestra.as_ref().unwrap();
@@ -143,6 +188,11 @@ fn update(state: &mut Supervisor, msg: AppMsg) {
                 state.album_page.hovered_song_id = None;
             }
         },
+        AppMsg::Player(player_msg) => match player_msg {
+            PlayerMsg::Tick(duration) => {
+                state.progress = duration;
+            }
+        },
     }
 }
 
@@ -176,8 +226,7 @@ fn render_page(state: &Supervisor) -> impl View<Supervisor, Message = AppMsg> + 
     }
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let _ = env_logger::try_init();
 
     let (width, height) = (600, 600);
@@ -189,13 +238,17 @@ async fn main() {
     let orchestra_mgr = Supervisor {
         mu_sx,
         mp_sx,
+        progress: Duration::from_secs(0),
+        progress_raw: Arc::new(AtomicU64::new(0)),
         current_page: Page::Landing,
         landing: LandingState::default(),
         library: LibraryState::default(),
         album_page: AlbumState::default(),
-        theme: Theme::Dark,
+        theme: Theme::Light,
         orchestra: None,
     };
+
+    let progress_ref = orchestra_mgr.progress_raw.clone();
 
     let mut window = Window::with(orchestra_mgr, update, app);
     window = fonts::Font::Iosevka.load(window);
@@ -203,7 +256,7 @@ async fn main() {
     window = fonts::Font::NotoSansCJK.load(window);
 
     mu.spawn(window.handle());
-    music_player.spawn(window.handle());
+    music_player.spawn(window.handle(), progress_ref);
 
     #[cfg(feature = "debug")]
     window.enable_terminal_debugger();

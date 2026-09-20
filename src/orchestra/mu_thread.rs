@@ -10,7 +10,7 @@ use arc_swap::ArcSwap;
 use mtk::windowing::WindowHandle;
 
 use crate::{
-    orchestra::Orchestra,
+    orchestra::{Orchestra, audio::PlayerMsg},
     pages::{album::AlbumMsg, landing::LandingMsg, library::LibraryMsg},
 };
 
@@ -32,6 +32,7 @@ pub enum AppMsg {
     Landing(LandingMsg),
     Library(LibraryMsg),
     AlbumPage(AlbumMsg),
+    Player(PlayerMsg),
 }
 
 pub struct Mu {
