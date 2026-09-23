@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use mtk::{
-    AlignItems, Edges, FlexDirection, JustifyContent, Lens, ObjectFit, Overflow, ScrollOffset,
-    ScrollbarStyle, Size, Style, SvgData, TextSpan, TextStyle, TransitionProperty,
+    AlignItems, Edges, FlexDirection, JustifyContent, Lens, Motion, ObjectFit, Overflow,
+    ScrollOffset, ScrollbarStyle, Size, Style, SvgData, TextSpan, TextStyle, TransitionProperty,
     VerticalAlignment,
     animation::Curve,
-    clr, switch,
+    clr, presence, switch,
     text_property::{Alignment, FontWeight},
     ui::{
         EventKind, View, ViewEventExt, ViewStyleExt,
@@ -527,7 +527,7 @@ fn hovered_song_card(
     ))
     .style(
         Style::new()
-            .width(Size::Percent(0.4))
+            .width(Size::Fill)
             .padding(10.)
             .gap(10.)
             .corner_radius(12.)
@@ -535,19 +535,16 @@ fn hovered_song_card(
     )
 }
 
-pub fn render(
+pub fn songs_list(
     state: &LibraryState,
-    orchestra: Option<Arc<ArcSwap<Orchestra>>>,
+    orchestra: &Option<Arc<ArcSwap<Orchestra>>>,
+    songs: Arc<Vec<Song>>,
     theme: Theme,
 ) -> impl View<LibraryState, Message = LibraryMsg> + use<> {
-    let orch = orchestra.as_ref().unwrap();
-    let guard = orch.load();
-
-    let song_count = guard.collection.songs.len();
+    const ITEM_HEIGHT: f32 = 45.0;
 
     let orch_clone = orchestra.clone();
     let hsid = state.hovered_song;
-    const ITEM_HEIGHT: f32 = 45.0;
 
     let scrollbar_style = ScrollbarStyle {
         thumb_color: clr!(ll_blue),
@@ -555,9 +552,7 @@ pub fn render(
         ..Default::default()
     };
 
-    let songs = state.sorted_songs.clone();
-
-    let songs_list = virtual_list_count(state.sorted_songs.len(), ITEM_HEIGHT, move |i| {
+    virtual_list_count(state.sorted_songs.len(), ITEM_HEIGHT, move |i| {
         container((song_pill(&songs[i], hsid, &orch_clone, theme, i),)).style(
             Style::new()
                 .width(Size::Percent(1.0))
@@ -577,7 +572,19 @@ pub fn render(
             .flex_grow(1.),
     )
     .scroll_offset(ScrollOffset::Percent(state.list_run_offset))
-    .on_scroll(|_, s| Some(LibraryMsg::SetListRunOffset(s.scroll_pct())));
+    .on_scroll(|_, s| Some(LibraryMsg::SetListRunOffset(s.scroll_pct())))
+}
+
+pub fn render(
+    state: &LibraryState,
+    orchestra: Option<Arc<ArcSwap<Orchestra>>>,
+    theme: Theme,
+) -> impl View<LibraryState, Message = LibraryMsg> + use<> {
+    let orch = orchestra.as_ref().unwrap();
+    let guard = orch.load();
+
+    let song_count = guard.collection.songs.len();
+    let songs = state.sorted_songs.clone();
 
     column((
         column((
@@ -590,14 +597,30 @@ pub fn render(
             .style(Style::new().apply(theme.subtitle(None))),
         )),
         row((
-            column((page_filter(state, theme), songs_list)).style(
+            column((
+                page_filter(state, theme),
+                switch! {
+                    match state.active_filter.tag {
+                        FilterTag::Songs => songs_list(state, &orchestra, songs, theme),
+                        _ => text("")
+                    }
+
+                },
+            ))
+            .style(
                 Style::new()
                     .height(Size::Percent(1.0))
                     .width(Size::Percent(0.6))
                     .padding_edges(Edges::all(0.).bottom(20.))
                     .gap(20.),
             ),
-            hovered_song_card(state, &orchestra, theme),
+            presence(
+                state.active_filter.tag == FilterTag::Songs,
+                hovered_song_card(state, &orchestra, theme),
+            )
+            .enter(Motion::fade_in())
+            .exit(Motion::fade_out())
+            .style(Style::new().width(Size::Percent(0.4)).height(Size::Fill)),
         ))
         .style(
             Style::new()

@@ -339,7 +339,7 @@ impl MusicPlayer {
     }
 
     /// Transitions to the next song in queue
-    pub fn next(&mut self, collection: &MusicCollection) {
+    pub fn next(&mut self, collection: &MusicCollection) -> bool {
         if let Some(ps) = self.playing_song.as_ref() {
             if ps.qorigin == QueueKind::Normal {
                 self.history.push(QueueItem {
@@ -352,7 +352,7 @@ impl MusicPlayer {
         if !self.override_queue.is_empty() {
             let item = self.override_queue.remove(0);
             self.load_and_play(item, QueueKind::Override, collection);
-            return;
+            return true;
         }
 
         let next_cursor = match &self.playing_song {
@@ -365,8 +365,10 @@ impl MusicPlayer {
             let actual_idx = self.order[self.cursor];
             let item = self.playback_queue[actual_idx];
             self.load_and_play(item, QueueKind::Normal, collection);
+            return true;
         } else {
             self.playing_song = None;
+            return false;
         }
     }
 
