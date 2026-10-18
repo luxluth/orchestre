@@ -22,7 +22,7 @@ use crate::{
         Orchestra,
         audio::{GlobalPlayerCmd, MusicPlayer, PlayerMsg},
         mu_thread::{AppMsg, Mu, MuCommand, OrchestraMsg},
-        track::Song,
+        track::{Album, Song},
     },
     pages::{
         Theme,
@@ -51,6 +51,34 @@ pub struct Supervisor {
     pub album_page: AlbumState,
     pub theme: Theme,
     pub orchestra: Option<Arc<ArcSwap<Orchestra>>>,
+}
+
+fn sort_albums(state: &mut Supervisor) {
+    let Some(orch) = state.orchestra.as_ref() else {
+        return;
+    };
+
+    let guard = orch.load();
+
+    let mut albums: Vec<Album> = guard.collection.albums.values().cloned().collect();
+
+    albums.sort_by(|a, b| {
+        let ordering = match state.library.active_filter.metric {
+            SortMetric::ByDate => a.date.cmp(&b.date),
+            SortMetric::ByTitle => a
+                .name
+                .chars()
+                .map(|c| c.to_ascii_lowercase())
+                .cmp(b.name.chars().map(|c| c.to_ascii_lowercase())),
+        };
+
+        match state.library.active_filter.order {
+            Order::Asc => ordering,
+            Order::Desc => ordering.reverse(),
+        }
+    });
+
+    state.library.sorted_albums = Arc::new(albums);
 }
 
 fn sort_songs(state: &mut Supervisor) {
@@ -95,6 +123,7 @@ fn update(state: &mut Supervisor, msg: AppMsg) {
                 state.landing.is_indexing = true;
                 state.orchestra = Some(orch.clone());
                 sort_songs(state);
+                sort_albums(state);
                 state.current_page = Page::Library;
             }
             OrchestraMsg::NeedIndexing => {
@@ -130,22 +159,32 @@ fn update(state: &mut Supervisor, msg: AppMsg) {
             LibraryMsg::HoverSong(id) => {
                 state.library.hovered_song = Some(id);
             }
+            LibraryMsg::HoverAlbum(id) => {
+                state.library.hovered_album = Some(id);
+            }
             LibraryMsg::SetFilterTag(filter_tag) => {
                 state.library.active_filter.tag = filter_tag;
-                if filter_tag == FilterTag::Songs {
-                    sort_songs(state);
+                state.library.list_run_offset = 0.0;
+                match filter_tag {
+                    FilterTag::Songs => sort_songs(state),
+                    FilterTag::Albums => sort_albums(state),
+                    FilterTag::Artists => {}
                 }
             }
             LibraryMsg::SetFilterOrder(order) => {
                 state.library.active_filter.order = order;
-                if state.library.active_filter.tag == FilterTag::Songs {
-                    sort_songs(state);
+                match state.library.active_filter.tag {
+                    FilterTag::Songs => sort_songs(state),
+                    FilterTag::Albums => sort_albums(state),
+                    FilterTag::Artists => {}
                 }
             }
             LibraryMsg::SetSortMetric(sort_metric) => {
                 state.library.active_filter.metric = sort_metric;
-                if state.library.active_filter.tag == FilterTag::Songs {
-                    sort_songs(state);
+                match state.library.active_filter.tag {
+                    FilterTag::Songs => sort_songs(state),
+                    FilterTag::Albums => sort_albums(state),
+                    FilterTag::Artists => {}
                 }
             }
             LibraryMsg::ClickArtist(artist_id, _) => {

@@ -26,8 +26,8 @@ use crate::{
         PLAY,
     },
     orchestra::{
-        Orchestra,
-        track::{Id, Song},
+        self, Orchestra,
+        track::{Album, Id, Song},
     },
     pages::{Theme, TimeFormat},
     svg_display,
@@ -36,9 +36,11 @@ use crate::{
 #[derive(Lens, Clone, Debug, Default)]
 pub struct LibraryState {
     pub hovered_song: Option<Id>,
+    pub hovered_album: Option<Id>,
     pub active_filter: Filter,
     pub list_run_offset: f32,
     pub sorted_songs: Arc<Vec<Song>>,
+    pub sorted_albums: Arc<Vec<Album>>,
 }
 
 #[derive(Clone, Debug)]
@@ -51,6 +53,7 @@ pub enum LibraryMsg {
     ClickAlbum(Id),
     SetListRunOffset(f32),
     Play(Id),
+    HoverAlbum(Id),
 }
 
 pub fn song_pill(
@@ -138,14 +141,14 @@ pub fn song_pill(
             .width(Size::Percent(1.0))
             .align_items(AlignItems::Center)
             .gap(14.0)
-            .padding(7.0)
+            .padding(Edges::all(7.0))
             .on_hover(|s| s.border(1.0, theme.teal_gray_accent())),
     )
     .on_event(EventKind::HoverIn, move |_| Some(LibraryMsg::HoverSong(id))),))
     .style(
         Style::new()
             .width(Size::Percent(1.0))
-            .padding_edges(Edges::all(0.).right(10.)),
+            .padding(Edges::all(0.).right(10.)),
     )
 }
 
@@ -284,7 +287,7 @@ pub fn page_filter(
             text(&f.name().to_uppercase())
                 .style(
                     Style::new()
-                        .padding_xy(18., 4.5)
+                        .padding(Edges::symmetric(18., 4.5))
                         .corner_radius(40.)
                         .bg_color(if state.active_filter.tag == *f {
                             clr!(ll_blue)
@@ -333,7 +336,7 @@ pub fn page_filter(
             ))
             .style(
                 Style::new()
-                    .padding_xy(18., 4.5)
+                    .padding(Edges::symmetric(18., 4.5))
                     .gap(4.)
                     .corner_radius(40.)
                     .bg_color(clr!(ll_blue).with_alpha(38))
@@ -352,7 +355,7 @@ pub fn page_filter(
                             .bg_color(theme.bg())
                             .border(1., theme.border())
                             .corner_radius(4.)
-                            .padding_xy(8., 4.)
+                            .padding(Edges::symmetric(8., 4.))
                             .set_text_style(
                                 TextStyle::new()
                                     .color(theme.fg())
@@ -364,7 +367,7 @@ pub fn page_filter(
             ))
             .style(
                 Style::new()
-                    .padding(4.)
+                    .padding(Edges::all(4.))
                     .corner_radius(50.)
                     .bg_color(clr!(ll_blue).with_alpha(38))
                     .on_active(|s| s.scale(0.96))
@@ -380,6 +383,21 @@ pub fn page_filter(
         Style::new()
             .justify_content(JustifyContent::SpaceBetween)
             .width(Size::Fill),
+    )
+}
+
+fn hovered_album_card(
+    state: &LibraryState,
+    orchestra: &Option<Arc<ArcSwap<Orchestra>>>,
+    theme: Theme,
+) -> impl View<LibraryState, Message = LibraryMsg> + use<> {
+    container((text("iuezduiezhdeziu"),)).style(
+        Style::new()
+            .width(Size::Percent(0.4))
+            .height(Size::Fill)
+            .padding(Edges::all(10.))
+            .gap(10.)
+            .bg_color(clr!(red)),
     )
 }
 
@@ -493,26 +511,6 @@ fn hovered_song_card(
                             .height(Size::Fit)
                             .width(Size::Fill),
                     ),
-                    // row((text(&track_fmt)
-                    //     .style(
-                    //         Style::new().set_text_style(
-                    //             TextStyle::new()
-                    //                 .align(Alignment::Right)
-                    //                 .font_size(14.)
-                    //                 .wrap(true)
-                    //                 .color(theme.fg().with_alpha(180))
-                    //                 .italic()
-                    //                 .font_family("Inter Variable"),
-                    //         ),
-                    //     )
-                    //     .style(Style::new().flex_grow(1.).width(Size::Fill)),))
-                    // .style(
-                    //     Style::new()
-                    //         .gap(10.)
-                    //         .align_items(AlignItems::Center)
-                    //         .height(Size::Fit)
-                    //         .width(Size::Fill),
-                    // ),
                 ))
                 .style(
                     Style::new()
@@ -520,19 +518,164 @@ fn hovered_song_card(
                         .corner_radius(8.)
                         .height(Size::Fit)
                         .width(Size::Fill)
-                        .padding(10.),
+                        .padding(Edges::all(10.)),
                 ),
             )
         }),
     ))
     .style(
         Style::new()
-            .width(Size::Fill)
-            .padding(10.)
+            .width(Size::Percent(0.4))
+            .padding(Edges::all(10.))
             .gap(10.)
             .corner_radius(12.)
             .border(2., theme.fg().with_alpha(38)),
     )
+}
+
+pub fn albums_list(
+    state: &LibraryState,
+    orchestra: &Option<Arc<ArcSwap<Orchestra>>>,
+    albums: Arc<Vec<Album>>,
+    theme: Theme,
+) -> impl View<LibraryState, Message = LibraryMsg> + use<> {
+    const ITEM_HEIGHT: f32 = 50.0;
+
+    let orch_clone = orchestra.clone();
+    let haid = state.hovered_album;
+
+    let scrollbar_style = ScrollbarStyle {
+        thumb_color: clr!(ll_blue),
+        track_color: Some(theme.fg().with_alpha(38)),
+        ..Default::default()
+    };
+
+    let album_count = albums.len().div_ceil(2);
+    let albums_clone = albums.clone();
+
+    virtual_list_count(album_count, ITEM_HEIGHT, move |i| {
+        let start = i * 2;
+        let end = (start + 2).min(albums_clone.len());
+        container((album_pair(
+            &albums_clone[start..end],
+            haid,
+            &orch_clone,
+            theme,
+        ),))
+        .style(
+            Style::new()
+                .width(Size::Percent(1.0))
+                .height(Size::Fixed(ITEM_HEIGHT as u32))
+                .min_height(ITEM_HEIGHT)
+                .max_height(ITEM_HEIGHT)
+                .flex_shrink(0.0)
+                .padding(Edges::symmetric(5., 4.5)),
+        )
+    })
+    .buffer(5)
+    .scrollbar(scrollbar_style)
+    .style(
+        Style::new()
+            .width(Size::Percent(1.0))
+            .height(Size::Fill)
+            .flex_grow(1.),
+    )
+    .scroll_offset(ScrollOffset::Percent(state.list_run_offset))
+    .on_scroll(|_, s| Some(LibraryMsg::SetListRunOffset(s.scroll_pct())))
+}
+
+pub fn album_pair(
+    albums: &[Album],
+    haid: Option<Id>,
+    orchestra: &Option<Arc<ArcSwap<Orchestra>>>,
+    theme: Theme,
+) -> impl View<LibraryState, Message = LibraryMsg> + use<> {
+    let mut pills = Vec::new();
+    for i in 0..albums.len() {
+        pills.push(album_pill(&albums[i], haid, orchestra, theme));
+    }
+
+    row(pills).style(
+        Style::new()
+            .width(Size::Percent(1.0))
+            .height(Size::Percent(1.0))
+            .gap(10.),
+    )
+}
+
+pub fn album_pill(
+    album: &Album,
+    haid: Option<Id>,
+    orchestra: &Option<Arc<ArcSwap<Orchestra>>>,
+    theme: Theme,
+) -> impl View<LibraryState, Message = LibraryMsg> + use<> {
+    let orch = orchestra.as_ref().unwrap();
+    let guard = orch.load();
+
+    let cover_id = album.cover.as_ref().unwrap_or(&Id::Unresolved);
+    let cover = guard.get_cover(cover_id).unwrap();
+
+    let main_color = cover
+        .swatches
+        .first()
+        .map(|e| e.to_color())
+        .unwrap_or(theme.fg());
+
+    let song_count = album.songs.len();
+    let name = &album.name;
+    let id = album.id;
+
+    row((
+        async_image(cover.get_path()).fit(ObjectFit::Cover).style(
+            Style::new()
+                .height(Size::Fixed(35))
+                .aspect_ratio(1.0)
+                .bg_color(main_color)
+                .corner_radius(4.),
+        ),
+        column((
+            text(name).style(
+                Style::new()
+                    .set_text_style(
+                        TextStyle::new()
+                            .font_size(14.)
+                            .font_family(InterVariable.name())
+                            .font_weight(FontWeight::BOLD)
+                            .color(theme.fg()),
+                    )
+                    .width(Size::Fill),
+            ),
+            text(if song_count > 1 {
+                format!("{} songs", song_count)
+            } else {
+                format!("{} song", song_count)
+            })
+            .style(
+                Style::new().set_text_style(
+                    TextStyle::new()
+                        .font_size(12.)
+                        .font_family(InterVariable.name())
+                        .color(theme.fg().with_alpha(150)),
+                ),
+            ),
+        ))
+        .style(Style::new().gap(2.).flex_grow(1.).width(Size::Fill)),
+    ))
+    .style(
+        Style::new()
+            .border(2., theme.border())
+            .corner_radius(6.)
+            .padding(Edges::all(2.))
+            .gap(12.)
+            .overflow(Overflow::Hidden)
+            .align_items(AlignItems::Center)
+            .width(Size::Percent(0.5))
+            .height(Size::Percent(1.0))
+            .flex_shrink(1.0),
+    )
+    .on_event(EventKind::HoverIn, move |_| {
+        Some(LibraryMsg::HoverAlbum(id))
+    })
 }
 
 pub fn songs_list(
@@ -560,7 +703,7 @@ pub fn songs_list(
                 .min_height(ITEM_HEIGHT)
                 .max_height(ITEM_HEIGHT)
                 .flex_shrink(0.0)
-                .padding_edges(Edges::tb(4.5)),
+                .padding(Edges::tb(4.5)),
         )
     })
     .buffer(5)
@@ -585,6 +728,7 @@ pub fn render(
 
     let song_count = guard.collection.songs.len();
     let songs = state.sorted_songs.clone();
+    let albums = state.sorted_albums.clone();
 
     column((
         column((
@@ -602,6 +746,7 @@ pub fn render(
                 switch! {
                     match state.active_filter.tag {
                         FilterTag::Songs => songs_list(state, &orchestra, songs, theme),
+                        FilterTag::Albums => albums_list(state, &orchestra, albums, theme),
                         _ => text("")
                     }
 
@@ -611,16 +756,17 @@ pub fn render(
                 Style::new()
                     .height(Size::Percent(1.0))
                     .width(Size::Percent(0.6))
-                    .padding_edges(Edges::all(0.).bottom(20.))
+                    .padding(Edges::all(0.).bottom(20.))
                     .gap(20.),
             ),
             presence(
                 state.active_filter.tag == FilterTag::Songs,
                 hovered_song_card(state, &orchestra, theme),
-            )
-            .enter(Motion::fade_in())
-            .exit(Motion::fade_out())
-            .style(Style::new().width(Size::Percent(0.4)).height(Size::Fill)),
+            ),
+            presence(
+                state.active_filter.tag == FilterTag::Albums,
+                hovered_album_card(state, &orchestra, theme),
+            ),
         ))
         .style(
             Style::new()
@@ -634,7 +780,7 @@ pub fn render(
             .width(Size::Fill)
             .height(Size::Fill)
             .gap(28.)
-            .padding_edges(Edges::lr(30.).top(20.).right(60.))
+            .padding(Edges::lr(30.).top(20.).right(60.))
             .bg_color(theme.bg()),
     )
 }

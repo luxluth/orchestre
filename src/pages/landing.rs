@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use mtk::{
-    AlignItems, AlignSelf, JustifyContent, Lens, ObjectFit, PositionStrategy, Size, Style, SvgData,
-    TextStyle,
+    AlignItems, AlignSelf, Edges, JustifyContent, Lens, ObjectFit, PositionStrategy, Size, Style,
+    SvgData, TextStyle,
     animation::Curve,
     clr,
     text_property::FontWeight,
@@ -91,7 +91,7 @@ pub fn music_dir_component(
                 .justify_content(JustifyContent::Center)
                 .align_items(AlignItems::Center)
                 .bg_color(theme.fg())
-                .padding(10.)
+                .padding(Edges::all(10.))
                 .on_active(|s| s.scale(0.97))
                 .transition_all(140.0, Curve::ease_out()),
         ),
@@ -101,7 +101,7 @@ pub fn music_dir_component(
         Style::new()
             .align_items(AlignItems::Center)
             .gap(10.0)
-            .padding_xy(8.0, 10.0)
+            .padding(Edges::symmetric(8.0, 10.0))
             .bg_color(theme.border())
             .border(1.0, theme.fg().with_alpha(80))
             .corner_radius(12.0)

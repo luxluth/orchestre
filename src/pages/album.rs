@@ -175,7 +175,7 @@ pub fn song_pill(
             .width(Size::Percent(1.0))
             .align_items(AlignItems::Center)
             .gap(14.0)
-            .padding(7.0)
+            .padding(Edges::all(7.0))
             .on_hover(|s| {
                 s.border(
                     2.0,
@@ -193,7 +193,7 @@ pub fn song_pill(
     .style(
         Style::new()
             .width(Size::Percent(1.0))
-            .padding_edges(Edges::all(0.).right(10.)),
+            .padding(Edges::all(0.).right(10.)),
     )
 }
 
@@ -236,13 +236,13 @@ fn songs_section(
                 .width(Size::Fill)
                 .gap(4.5)
                 .height(Size::Fit)
-                .padding_edges(Edges::all(0.).bottom(25.)),
+                .padding(Edges::all(0.).bottom(25.)),
         ),
     ))
     .style(
         Style::new()
             .gap(15.)
-            .padding_xy(30., 10.)
+            .padding(Edges::symmetric(30., 10.))
             .width(Size::Fill)
             .height(Size::Fit),
     )
@@ -308,7 +308,16 @@ pub fn render(
                 text(&album.name).style(
                     Style::new()
                         .width(Size::Fill)
-                        .apply(theme.heading(Some(main_fg))),
+                        .apply(theme.heading(Some(main_fg)))
+                        .update_text_style(|s| {
+                            s.font_size = if album.name.len() > 60 {
+                                24.0
+                            } else if album.name.len() > 20 {
+                                36.0
+                            } else {
+                                48.0
+                            };
+                        }),
                 ),
                 text("ALBUM").style(Style::new().apply(theme.subtitle(Some(main_fg)))),
             ))
@@ -332,7 +341,7 @@ pub fn render(
             Style::new()
                 .width(Size::Fill)
                 .gap(10.)
-                .padding_edges(Edges::lr(30.).top(20.))
+                .padding(Edges::lr(30.).top(20.))
                 // .align_items(AlignItems::Center)
                 .justify_content(JustifyContent::SpaceBetween),
         ),
@@ -379,7 +388,7 @@ pub fn render(
                     ))
                     .style(Style::new().gap(5.)),
                 ))
-                .style(Style::new().gap(15.).padding_xy(30., 10.)),
+                .style(Style::new().gap(15.).padding(Edges::symmetric(30., 10.))),
                 songs_section(state, orchestra, album, theme, (main_fg, main_bg)),
             ))
             .style(
@@ -387,7 +396,7 @@ pub fn render(
                     .gap(40.)
                     .width(Size::Fill)
                     .height(Size::Fit)
-                    .padding_edges(Edges::all(0.).bottom(50.)),
+                    .padding(Edges::all(0.).bottom(50.)),
             ),
         )
         .axis(ScrollAxis::Vertical)
