@@ -7,7 +7,7 @@ use mtk::{
     VerticalAlignment,
     animation::Curve,
     clr, presence, switch,
-    text_property::{Alignment, FontWeight},
+    text_property::{Alignment, FontStyle, FontWeight},
     ui::{
         EventKind, View, ViewEventExt, ViewStyleExt,
         widgets::{
@@ -569,7 +569,7 @@ pub fn albums_list(
                 .min_height(ITEM_HEIGHT)
                 .max_height(ITEM_HEIGHT)
                 .flex_shrink(0.0)
-                .padding(Edges::symmetric(5., 4.5)),
+                .padding(Edges::symmetric(10., 4.5)),
         )
     })
     .buffer(5)
@@ -640,7 +640,7 @@ pub fn album_pill(
                         TextStyle::new()
                             .font_size(14.)
                             .font_family(InterVariable.name())
-                            .font_weight(FontWeight::BOLD)
+                            .font_style(FontStyle::Italic)
                             .color(theme.fg()),
                     )
                     .width(Size::Fill),
@@ -655,7 +655,7 @@ pub fn album_pill(
                     TextStyle::new()
                         .font_size(12.)
                         .font_family(InterVariable.name())
-                        .color(theme.fg().with_alpha(150)),
+                        .color(theme.fg().with_alphaf(0.5)),
                 ),
             ),
         ))
@@ -663,15 +663,16 @@ pub fn album_pill(
     ))
     .style(
         Style::new()
-            .border(2., theme.border())
+            .border(1., theme.border())
             .corner_radius(6.)
-            .padding(Edges::all(2.))
+            .padding(Edges::tb(3.).left(2.).right(2.))
             .gap(12.)
             .overflow(Overflow::Hidden)
             .align_items(AlignItems::Center)
             .width(Size::Percent(0.5))
             .height(Size::Percent(1.0))
-            .flex_shrink(1.0),
+            .flex_shrink(1.0)
+            .on_hover(|s| s.border(1.0, theme.teal_gray_accent())),
     )
     .on_event(EventKind::HoverIn, move |_| {
         Some(LibraryMsg::HoverAlbum(id))

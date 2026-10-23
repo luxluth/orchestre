@@ -296,9 +296,10 @@ pub fn render(
         })
         .collect();
 
+    let thumb_color = main_fg.lerp(&main_bg, 0.2);
     let scrollbar_style = ScrollbarStyle {
-        thumb_color: main_fg,
-        track_color: Some(main_fg.with_alphaf(0.3)),
+        thumb_color: thumb_color,
+        track_color: Some(thumb_color.with_alphaf(0.3)),
         ..Default::default()
     };
 
